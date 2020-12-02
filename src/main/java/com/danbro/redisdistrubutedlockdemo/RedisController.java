@@ -1,5 +1,7 @@
 package com.danbro.redisdistrubutedlockdemo;
 
+import org.redisson.Redisson;
+import org.redisson.api.RLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -17,12 +19,15 @@ public class RedisController {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    @Autowired
+    private Redisson redisson;
+
+    private final static String LUA_DELETE_SUCCESS = "1";
+
     private final static String REDIS_LOCK = "goods:101";
 
     @Value("${server.port}")
     private String port;
-
-    private final static String LUA_DELETE_SUCCESS = "1";
 
     private final static String DELETE_SCRIPT = "if redis.call(\"get\",KEYS[1]) == ARGV[1]\n" +
             "then\n" +
@@ -33,12 +38,10 @@ public class RedisController {
 
 
     @GetMapping("/buy")
-    public String buy() throws Exception {
+    public String buy() {
         UUID uuid = UUID.randomUUID();
-        // 先判断是否成功获取到钥匙，获取成功就设置过期时间，value 为一个随机字符串防止被其他线程删除。
-        if (!redisTemplate.opsForValue().setIfAbsent(REDIS_LOCK, uuid.toString(), 10L, TimeUnit.SECONDS)) {
-            return "失败";
-        }
+        RLock lock = redisson.getLock(REDIS_LOCK);
+        lock.lock();
         try {
             String result = redisTemplate.opsForValue().get(REDIS_LOCK);
             int num = result == null ? 0 : Integer.parseInt(result);
@@ -54,19 +57,7 @@ public class RedisController {
         } catch (NumberFormatException e) {
             e.printStackTrace();
         } finally {
-            // 判断是不是当前线程设置的锁，通过 UUID 来判断。
-            if (Objects.requireNonNull(redisTemplate.opsForValue().get(REDIS_LOCK)).equalsIgnoreCase(uuid.toString())) {
-                try (Jedis jedis = RedisUtils.getJedis()) {
-                    // 使用 Lua 脚本删除分布式锁
-                    Object result = jedis.eval(DELETE_SCRIPT, Collections.singletonList(REDIS_LOCK), Collections.singletonList(uuid.toString()));
-                    if (LUA_DELETE_SUCCESS.equals(result)) {
-                        System.out.println("删除成功！");
-                    } else {
-                        System.out.println("删除失败！");
-                    }
-                }
-            }
-
+            lock.unlock();
         }
         return "失败";
 

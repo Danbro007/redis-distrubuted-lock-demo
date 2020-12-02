@@ -24,7 +24,9 @@ public class RedisController {
 
     private final static String LUA_DELETE_SUCCESS = "1";
 
-    private final static String REDIS_LOCK = "goods:101";
+    private final static String REDIS_LOCK = "goods101:lock";
+
+    private final static String GOODS_NAME = "goods101";
 
     @Value("${server.port}")
     private String port;
@@ -39,15 +41,14 @@ public class RedisController {
 
     @GetMapping("/buy")
     public String buy() {
-        UUID uuid = UUID.randomUUID();
         RLock lock = redisson.getLock(REDIS_LOCK);
         lock.lock();
         try {
-            String result = redisTemplate.opsForValue().get(REDIS_LOCK);
+            String result = redisTemplate.opsForValue().get(GOODS_NAME);
             int num = result == null ? 0 : Integer.parseInt(result);
             if (num > 0) {
                 num -= 1;
-                redisTemplate.opsForValue().set("goods:101", Integer.toString(num));
+                redisTemplate.opsForValue().set(GOODS_NAME, Integer.toString(num));
                 System.out.printf("成功买到商品：%s,提供服务的端口：%s%n", num, port);
                 return String.format("成功买到商品：%s,提供服务的端口:%s", num, port);
             } else {
